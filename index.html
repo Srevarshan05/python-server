@@ -1,0 +1,76 @@
+<!-- index.html - Monaco + Docker Runner UI -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Python Online Code Runner</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: #1e1e1e;
+      color: white;
+    }
+    #editor {
+      width: 100%;
+      height: 60vh;
+    }
+    #input, #output {
+      width: 100%;
+      height: 15vh;
+      background: #2d2d2d;
+      color: white;
+      border: none;
+      padding: 10px;
+      font-family: Consolas, monospace;
+      font-size: 14px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px;
+      background: #007acc;
+      border: none;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #005a9e;
+    }
+  </style>
+</head>
+<body>
+  <h2 style="padding: 10px;">🧠 Python Code Editor (Monaco + Docker)</h2>
+  <div id="editor"></div>
+  <textarea id="input" placeholder="Runtime input (if any)..."></textarea>
+  <button onclick="runCode()">▶️ Run Code</button>
+  <pre id="output">💻 Output will appear here...</pre>
+
+  <script>
+    let editor;
+    require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+    require(['vs/editor/editor.main'], function () {
+      editor = monaco.editor.create(document.getElementById('editor'), {
+        value: `print("Hello from Docker!")\nname = input("What is your name? ")\nprint("Hi", name)`,
+        language: 'python',
+        theme: 'vs-dark',
+        fontSize: 14,
+        automaticLayout: true
+      });
+    });
+
+    async function runCode() {
+      const code = editor.getValue();
+      const input = document.getElementById('input').value;
+      const res = await fetch('/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, input })
+      });
+      const data = await res.json();
+      document.getElementById('output').textContent = data.output || data.error || 'No output';
+    }
+  </script>
+</body>
+</html>
