@@ -10,14 +10,36 @@
       font-family: sans-serif;
       background: #1e1e1e;
       color: white;
+      display: flex; /* Use flexbox for layout */
+      flex-direction: column; /* Stack elements vertically */
+      min-height: 100vh; /* Ensure body takes full viewport height */
+    }
+    h2 {
+      padding: 10px;
+      text-align: center; /* Center the title */
     }
     #editor {
       width: 100%;
-      height: 70vh;
+      flex-grow: 1; /* Allow editor to grow and take available space */
+      height: 70vh; /* Initial height, will be adjusted by flex-grow if needed */
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px auto; /* Center button */
+      background: #007acc;
+      border: none;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 5px;
+      display: block; /* Make button a block element to center it with margin: auto */
+    }
+    button:hover {
+      background: #005a9e;
     }
     #output {
       width: 100%;
-      height: 25vh;
+      height: 25vh; /* Initial height */
       background: #2d2d2d;
       color: white;
       border: none;
@@ -26,29 +48,22 @@
       font-size: 14px;
       overflow-y: auto;
       position: relative;
+      box-sizing: border-box; /* Include padding in the element's total width and height */
     }
     #input-box {
-      display: none;
-      width: 100%;
-      padding: 5px;
+      display: none; /* Initially hidden */
+      width: calc(100% - 20px); /* Account for padding */
+      padding: 10px;
       font-family: Consolas, monospace;
       font-size: 14px;
-      margin-top: 5px;
+      margin: 5px 0;
+      background: #3c3c3c;
+      border: 1px solid #007acc; /* Highlight border when active */
+      color: white;
+      box-sizing: border-box; /* Include padding in the element's total width and height */
     }
     #input-box.active {
-      display: block;
-    }
-    button {
-      padding: 10px 20px;
-      margin: 10px;
-      background: #007acc;
-      border: none;
-      color: white;
-      font-size: 16px;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #005a9e;
+      display: block; /* Show when active */
     }
   </style>
 </head>
@@ -57,15 +72,52 @@
   <div id="editor"></div>
   <button onclick="runCode()">▶️ Run Code</button>
   <pre id="output">💻 Output will appear here...</pre>
-  <textarea id="input-box" placeholder="Enter input here..."></textarea>
+  <input type="text" id="input-box" placeholder="">
 
   <script>
     let editor;
     let ws = null;
+    let inputExpected = false; // Flag to track input state
+
     require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
     require(['vs/editor/editor.main'], function () {
       editor = monaco.editor.create(document.getElementById('editor'), {
-        value: `n = int(input("enter input"))\nprint(n)`,
+        value: `
+# This is a sample Python script.
+# Try modifying it, adding loops, strings, or even errors!
+
+name = input("Enter your name: ")
+print(f"Hello, {name}!")
+
+age_str = input("Enter your age: ")
+try:
+    age = int(age_str)
+    print(f"You are {age} years old.")
+    if age < 18:
+        print("You are a minor.")
+    else:
+        print("You are an adult.")
+except ValueError:
+    print("Error: Invalid age entered. Please enter a number.")
+
+# Example of an intentional error to see traceback
+# print(undefined_variable)
+
+# String manipulation
+my_string = "Python is powerful!"
+print(my_string.upper())
+print(my_string.replace("powerful", "awesome"))
+
+# Loop example
+for i in range(3):
+    print(f"Loop iteration {i}")
+
+# List and dictionary
+my_list = ["apple", "banana", "cherry"]
+print(f"My list: {my_list}")
+my_dict = {"fruit": "apple", "color": "red"}
+print(f"My dictionary: {my_dict}")
+`, // Added default code with various examples and an intentional error
         language: 'python',
         theme: 'vs-dark',
         fontSize: 14,
@@ -74,8 +126,8 @@
     });
 
     function connectWebSocket() {
-      if (ws) {
-        ws.close();
+      if (ws && ws.readyState !== WebSocket.CLOSED) {
+        ws.close(); // Close existing connection if any
       }
       ws = new WebSocket('ws://' + window.location.host + '/ws/run');
       const output = document.getElementById('output');
@@ -83,6 +135,10 @@
 
       ws.onopen = () => {
         output.textContent = 'Connected to server...\n';
+        inputBox.classList.remove('active'); // Hide input box on fresh connection
+        inputExpected = false;
+        inputBox.value = ''; // Clear input box
+        inputBox.placeholder = ''; // Clear placeholder
       };
 
       ws.onmessage = (event) => {
@@ -90,28 +146,44 @@
         if (data.type === 'output') {
           output.textContent += data.message;
         } else if (data.type === 'error') {
-          output.textContent += 'Error: ' + data.message + '\n';
+          // This type is for server-side errors, not Python script errors (which come as 'output')
+          output.textContent += 'Server Error: ' + data.message + '\n';
+          inputBox.classList.remove('active');
+          inputExpected = false;
         } else if (data.type === 'input') {
-          output.textContent += data.message;
-          inputBox.classList.add('active');
-          inputBox.focus();
+          inputBox.classList.add('active'); // Show input box
+          inputBox.focus(); // *** Crucial for cursor visibility ***
+          inputExpected = true;
+          inputBox.placeholder = 'Type your input here and press Enter...';
         }
+        output.scrollTop = output.scrollHeight; // Auto-scroll to bottom
       };
 
       ws.onclose = () => {
         output.textContent += 'Disconnected from server.\n';
+        inputBox.classList.remove('active');
+        inputExpected = false;
+        inputBox.value = '';
+        inputBox.placeholder = '';
       };
 
       ws.onerror = (error) => {
         output.textContent += 'WebSocket error: ' + error + '\n';
+        inputBox.classList.remove('active');
+        inputExpected = false;
+        inputBox.value = '';
+        inputBox.placeholder = '';
       };
 
       inputBox.addEventListener('keypress', (event) => {
-        if (event.key === 'Enter' && inputBox.classList.contains('active')) {
-          const input = inputBox.value + '\n';
+        if (event.key === 'Enter' && inputExpected) {
+          const input = inputBox.value + '\n'; // Append newline for standard input
           ws.send(JSON.stringify({ type: 'input', message: input }));
-          inputBox.value = '';
-          inputBox.classList.remove('active');
+          output.textContent += inputBox.value + '\n'; // Echo user's input to output
+          inputBox.value = ''; // Clear the input box
+          inputBox.classList.remove('active'); // Hide input box after sending
+          inputExpected = false;
+          inputBox.placeholder = '';
         }
       });
     }
@@ -119,12 +191,25 @@
     async function runCode() {
       if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
         connectWebSocket();
-        await new Promise(resolve => setTimeout(resolve, 200)); // Increased delay for connection
+        await new Promise(resolve => {
+          if (ws.readyState === WebSocket.OPEN) {
+            resolve();
+          } else {
+            ws.onopen = resolve;
+          }
+        });
       }
       const code = editor.getValue();
       document.getElementById('output').textContent = 'Running...\n';
+      document.getElementById('input-box').classList.remove('active');
+      inputExpected = false;
+      document.getElementById('input-box').value = '';
+      document.getElementById('input-box').placeholder = '';
       ws.send(JSON.stringify({ type: 'code', message: code }));
     }
+
+    // Initial connection attempt when the page loads
+    window.onload = connectWebSocket;
   </script>
 </body>
 </html>
