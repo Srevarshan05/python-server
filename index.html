@@ -1,9 +1,8 @@
-<!-- index.html - Monaco + Docker Runner UI -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Python Online Code Runner</title>
+  <title>code-sync</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
   <style>
     body {
@@ -14,17 +13,30 @@
     }
     #editor {
       width: 100%;
-      height: 60vh;
+      height: 70vh;
     }
-    #input, #output {
+    #output {
       width: 100%;
-      height: 15vh;
+      height: 25vh;
       background: #2d2d2d;
       color: white;
       border: none;
       padding: 10px;
       font-family: Consolas, monospace;
       font-size: 14px;
+      overflow-y: auto;
+      position: relative;
+    }
+    #input-box {
+      display: none;
+      width: 100%;
+      padding: 5px;
+      font-family: Consolas, monospace;
+      font-size: 14px;
+      margin-top: 5px;
+    }
+    #input-box.active {
+      display: block;
     }
     button {
       padding: 10px 20px;
@@ -41,18 +53,19 @@
   </style>
 </head>
 <body>
-  <h2 style="padding: 10px;">🧠 Python Code Editor (Monaco + Docker)</h2>
+  <h2 style="padding: 10px;">🧠 Vibe Code Editor</h2>
   <div id="editor"></div>
-  <textarea id="input" placeholder="Runtime input (if any)..."></textarea>
   <button onclick="runCode()">▶️ Run Code</button>
   <pre id="output">💻 Output will appear here...</pre>
+  <textarea id="input-box" placeholder="Enter input here..."></textarea>
 
   <script>
     let editor;
+    let ws = null;
     require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
     require(['vs/editor/editor.main'], function () {
       editor = monaco.editor.create(document.getElementById('editor'), {
-        value: `print("Hello from Docker!")\nname = input("What is your name? ")\nprint("Hi", name)`,
+        value: `n = int(input("enter input"))\nprint(n)`,
         language: 'python',
         theme: 'vs-dark',
         fontSize: 14,
@@ -60,16 +73,57 @@
       });
     });
 
-    async function runCode() {
-      const code = editor.getValue();
-      const input = document.getElementById('input').value;
-      const res = await fetch('/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, input })
+    function connectWebSocket() {
+      if (ws) {
+        ws.close();
+      }
+      ws = new WebSocket('ws://' + window.location.host + '/ws/run');
+      const output = document.getElementById('output');
+      const inputBox = document.getElementById('input-box');
+
+      ws.onopen = () => {
+        output.textContent = 'Connected to server...\n';
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'output') {
+          output.textContent += data.message;
+        } else if (data.type === 'error') {
+          output.textContent += 'Error: ' + data.message + '\n';
+        } else if (data.type === 'input') {
+          output.textContent += data.message;
+          inputBox.classList.add('active');
+          inputBox.focus();
+        }
+      };
+
+      ws.onclose = () => {
+        output.textContent += 'Disconnected from server.\n';
+      };
+
+      ws.onerror = (error) => {
+        output.textContent += 'WebSocket error: ' + error + '\n';
+      };
+
+      inputBox.addEventListener('keypress', (event) => {
+        if (event.key === 'Enter' && inputBox.classList.contains('active')) {
+          const input = inputBox.value + '\n';
+          ws.send(JSON.stringify({ type: 'input', message: input }));
+          inputBox.value = '';
+          inputBox.classList.remove('active');
+        }
       });
-      const data = await res.json();
-      document.getElementById('output').textContent = data.output || data.error || 'No output';
+    }
+
+    async function runCode() {
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        connectWebSocket();
+        await new Promise(resolve => setTimeout(resolve, 200)); // Increased delay for connection
+      }
+      const code = editor.getValue();
+      document.getElementById('output').textContent = 'Running...\n';
+      ws.send(JSON.stringify({ type: 'code', message: code }));
     }
   </script>
 </body>
